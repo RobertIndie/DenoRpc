@@ -1,1 +1,1 @@
-export * from "./mod.ts"
+export * from "./testfn.ts"
