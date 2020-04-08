@@ -27,6 +27,7 @@ Deno.test({
     const res = await client.Call("rpcTest", new TestReq());
     assertEquals(res, serverReturn);
 
+    client.Close();
     server.Close();
   },
 });
