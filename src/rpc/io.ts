@@ -1,32 +1,68 @@
-import { BufReader } from "https://deno.land/std/io/bufio.ts";
+import { BufReader, BufWriter } from "https://deno.land/std/io/bufio.ts";
 import { TextProtoReader } from "https://deno.land/std/textproto/mod.ts";
-import { ReqPacket } from "./server.ts";
-
+import {
+  ReqPacket,
+  ErrPacket,
+  ErrorType,
+  Packet,
+  RpcPacket
+} from "./packets.ts";
+import { encoder } from "https://deno.land/std/strings/encode.ts";
 export enum PacketType {
-  Reqeust = "Request",
-  Response = "Response",
+  Request,
+  Response,
+  Error,
 }
 
 export async function ReadPacket(
   bufr: BufReader,
-): Promise<ReqPacket | Deno.EOF> {
+): Promise<Packet | Deno.EOF> {
   const tp = new TextProtoReader(bufr);
-  const type = await tp.readLine();
-  if (type === Deno.EOF) return Deno.EOF;
-  switch (type) {
-    case PacketType.Reqeust: {
-      const reqPac = new ReqPacket();
-      const method = await tp.readLine();
-      if (method === Deno.EOF) return Deno.EOF;
-      reqPac.method = method;
-      const payload = await tp.readLine();
-      if (payload === Deno.EOF) return Deno.EOF;
-      reqPac.payload = payload;
-      return reqPac;
+  const typeName = await tp.readLine();
+  if (typeName === Deno.EOF) return Deno.EOF;
+  const type = (<any> PacketType)[typeName];
+  try {
+    switch (type) {
+      case PacketType.Request: {
+        const reqPac = new ReqPacket();
+        const method = await tp.readLine();
+        if (method === Deno.EOF) return Deno.EOF;
+        reqPac.method = method;
+        const payload = await tp.readLine();
+        if (payload === Deno.EOF) return Deno.EOF;
+        reqPac.payload = payload;
+        return reqPac;
+      }
+      case PacketType.Response: {
+        return Deno.EOF; // TODO: add response packet
+      }
+      case PacketType.Error: {
+        const errType = (<any> ErrorType)[Number(await tp.readLine())];
+        let msg = await tp.readLine();
+        if (msg === Deno.EOF) msg = "";
+        return new ErrPacket(errType, msg);
+      }
     }
-    case PacketType.Response: {
-      return Deno.EOF; // TODO: add response packet
-    }
+  } catch (e) {
+    console.log(e);
+    return Deno.EOF;
   }
   return Deno.EOF;
+}
+
+export async function WritePacket(
+  bufw: BufWriter,
+  packet: Packet,
+) {
+  if (packet instanceof ReqPacket) {
+    await bufw.write(encoder.encode(PacketType[PacketType.Request] + "\n"));
+    await bufw.write(encoder.encode(packet.method + "\n"));
+    await bufw.write(encoder.encode(packet.payload + "\n"));
+  }
+  if(packet instanceof ErrPacket){
+    await bufw.write(encoder.encode(PacketType[PacketType.Error] + "\n"));
+    await bufw.write(encoder.encode(packet.errType + "\n"));
+    await bufw.write(encoder.encode(packet.msg + "\n")); 
+  }
+  bufw.flush();
 }

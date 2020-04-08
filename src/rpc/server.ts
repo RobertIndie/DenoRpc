@@ -1,9 +1,9 @@
 import Conn = Deno.Conn;
 import Listener = Deno.Listener;
 import { BufReader, BufWriter } from "https://deno.land/std/io/bufio.ts";
-import { Packet } from "./packets.ts";
-
-type CallFnType = (req: Object) => Context;
+import { Packet, ErrPacket, ErrorType, ReqPacket } from "./packets.ts";
+import { WritePacket, ReadPacket } from "./io.ts";
+type CallFnType = (req: Packet) => void;
 
 export class Context {
   bufr!: BufReader;
@@ -11,6 +11,16 @@ export class Context {
   constructor(public conn: Conn) {
     this.bufr = new BufReader(conn);
     this.bufw = new BufWriter(conn);
+  }
+  async Write(packet: Packet) {
+    await WritePacket(this.bufw, packet);
+  }
+  async Read(): Promise<Packet | Deno.EOF> {
+    const packet = await ReadPacket(this.bufr);
+    return packet;
+  }
+  async Error(e: ErrorType, msg: string = "") {
+    this.Write(new ErrPacket(e, msg));
   }
 }
 
@@ -38,7 +48,7 @@ export class RpcServer {
   private services: Map<string, CallFnType> = new Map<string, CallFnType>();
 
   public Register(method: string, fn: CallFnType): void {
-    this.services.set(method,fn);
+    this.services.set(method, fn);
   }
   public UnRegister(method: string): void {
     this.services.delete(method);
@@ -54,12 +64,6 @@ export class RpcServer {
   }
   private untrackConnection(conn: Conn): void {
     this.connections.delete(conn);
-  }
-
-  private async Write(conn: Conn) {
-  }
-  private async Read(conn: Conn): Promise<Packet|Deno.EOF> {
-    return Deno.EOF;
   }
 
   private async AccpetConn(): Promise<void> {
@@ -80,12 +84,14 @@ export class RpcServer {
   }
 
   private async ProcessConn(conn: Conn): Promise<void> {
-    let req: Packet|Deno.EOF = Deno.EOF;
+    let req: Packet | Deno.EOF = Deno.EOF;
     let err: Error | undefined;
+    const context: Context | undefined = this.connections.get(conn);
+    if (context === undefined) return;
 
     while (!this.closing) {
       try {
-        req = await this.Read(conn);
+        req = await context.Read();
       } catch (e) {
         err = e;
       }
@@ -93,7 +99,23 @@ export class RpcServer {
         break;
       }
 
-      
+      if (req instanceof ReqPacket) {
+        if (!this.services.has(req.method)) {
+          await context.Error(ErrorType.MethodNotFound);
+          continue;
+        }
+        const r = req;
+        new Promise((resolve, reject) => {
+          try {
+            this.services.get(r.method)?.call(context, r);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        }).then(() => {}, async (e) => {
+          await context.Error(ErrorType.Unhandle, e);
+        });
+      }
     }
 
     this.untrackConnection(conn);

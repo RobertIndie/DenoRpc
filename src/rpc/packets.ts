@@ -1,7 +1,8 @@
-export type Packet = ReqPacket;
+export type Packet = ReqPacket|ErrPacket;
 
 export enum ErrorType {
-  TEST = 1
+  MethodNotFound = 404,
+  Unhandle = 0
 }
 
 export class RpcPacket {
@@ -13,5 +14,10 @@ export class ReqPacket extends RpcPacket {
 }
 
 export class ErrPacket extends RpcPacket {
-  errType!: ErrorType;
+  constructor(
+    public errType: ErrorType,
+    public msg: string = "",
+  ) {
+    super();
+  }
 }
