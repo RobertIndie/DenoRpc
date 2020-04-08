@@ -5,7 +5,6 @@ import {
   ErrPacket,
   ErrorType,
   Packet,
-  RpcPacket,
   ResPacket
 } from "./packets.ts";
 import { encoder } from "https://deno.land/std/strings/encode.ts";

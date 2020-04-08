@@ -1,6 +1,7 @@
 import { serve } from "./server.ts";
 import { connect } from "./client.ts";
 import { assertEquals } from "https://deno.land/std/testing/asserts.ts";
+
 class TestMessage {
   constructor(public msg: string) {
   }
@@ -28,6 +29,7 @@ Deno.test({
     assertEquals(res, serverReturn);
 
     client.Close();
-    server.Close();
+    server.Close(); // remember to close tcpStream in the end of unit test.
+                    // or it will cause resources leakage.
   },
 });
