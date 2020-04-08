@@ -1,1 +1,1 @@
-export * from "./testfn.ts"
+export * from "./server.ts"
