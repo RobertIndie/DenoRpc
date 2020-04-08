@@ -5,7 +5,8 @@ import {
   ErrPacket,
   ErrorType,
   Packet,
-  RpcPacket
+  RpcPacket,
+  ResPacket
 } from "./packets.ts";
 import { encoder } from "https://deno.land/std/strings/encode.ts";
 export enum PacketType {
@@ -34,7 +35,11 @@ export async function ReadPacket(
         return reqPac;
       }
       case PacketType.Response: {
-        return Deno.EOF; // TODO: add response packet
+        const resPac = new ResPacket();
+        const payload = await tp.readLine();
+        if (payload === Deno.EOF) return Deno.EOF;
+        resPac.payload = payload;
+        return resPac;
       }
       case PacketType.Error: {
         const errType = (<any> ErrorType)[Number(await tp.readLine())];
@@ -59,10 +64,14 @@ export async function WritePacket(
     await bufw.write(encoder.encode(packet.method + "\n"));
     await bufw.write(encoder.encode(packet.payload + "\n"));
   }
-  if(packet instanceof ErrPacket){
+  if (packet instanceof ErrPacket) {
     await bufw.write(encoder.encode(PacketType[PacketType.Error] + "\n"));
     await bufw.write(encoder.encode(packet.errType + "\n"));
-    await bufw.write(encoder.encode(packet.msg + "\n")); 
+    await bufw.write(encoder.encode(packet.msg + "\n"));
+  }
+  if (packet instanceof ResPacket) {
+    await bufw.write(encoder.encode(PacketType[PacketType.Response] + "\n"));
+    await bufw.write(encoder.encode(packet.payload + "\n"));
   }
   bufw.flush();
 }

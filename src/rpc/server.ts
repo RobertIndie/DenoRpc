@@ -1,9 +1,15 @@
 import Conn = Deno.Conn;
 import Listener = Deno.Listener;
 import { BufReader, BufWriter } from "https://deno.land/std/io/bufio.ts";
-import { Packet, ErrPacket, ErrorType, ReqPacket } from "./packets.ts";
+import {
+  Packet,
+  ErrPacket,
+  ErrorType,
+  ReqPacket,
+  ResPacket
+} from "./packets.ts";
 import { WritePacket, ReadPacket } from "./io.ts";
-type CallFnType = (req: Packet) => void;
+type CallFnType = (req: object, cxt: Context) => object | void;
 
 export class Context {
   bufr!: BufReader;
@@ -30,7 +36,7 @@ export class RpcServer {
 
   constructor(public listener: Listener) {}
 
-  close(): void {
+  Close(): void {
     this.closing = true;
     this.listener.close();
     for (const [conn, context] of this.connections) {
@@ -58,11 +64,11 @@ export class RpcServer {
     return this.AccpetConn();
   }
 
-  private trackConnection(conn: Conn): void {
+  private TrackConnection(conn: Conn): void {
     let context = new Context(conn);
     this.connections.set(conn, context);
   }
-  private untrackConnection(conn: Conn): void {
+  private UntrackConnection(conn: Conn): void {
     this.connections.delete(conn);
   }
 
@@ -78,7 +84,7 @@ export class RpcServer {
       }
       throw error;
     }
-    this.trackConnection(conn);
+    this.TrackConnection(conn);
     this.AccpetConn();
     this.ProcessConn(conn);
   }
@@ -107,7 +113,14 @@ export class RpcServer {
         const r = req;
         new Promise((resolve, reject) => {
           try {
-            this.services.get(r.method)?.call(context, r);
+            const resObj = this.services.get(r.method)?.call(
+              context,
+              JSON.parse(r.payload),
+              context,
+            );
+            if (typeof resObj === "object") {
+              context.Write(new ResPacket(resObj));
+            }
             resolve();
           } catch (e) {
             reject(e);
@@ -118,11 +131,21 @@ export class RpcServer {
       }
     }
 
-    this.untrackConnection(conn);
+    this.UntrackConnection(conn);
     try {
       conn.close();
     } catch (e) {
       // might have been already closed
     }
   }
+}
+
+export function serve(addr: string | Deno.ListenOptions): RpcServer {
+  if (typeof addr === "string") {
+    const [hostname, port] = addr.split(":");
+    addr = { hostname, port: Number(port) };
+  }
+
+  const listener = Deno.listen(addr);
+  return new RpcServer(listener);
 }
